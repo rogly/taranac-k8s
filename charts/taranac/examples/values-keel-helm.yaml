@@ -7,7 +7,6 @@ keel:
   pollSchedule: "@every 5m"
   matchTag: true
   images:
-    - {repository: edge.image.repository,       tag: edge.image.tag}
     - {repository: api.image.repository,        tag: api.image.tag}
     - {repository: winbind.image.repository,    tag: winbind.image.tag}
     - {repository: tacacs.image.repository,     tag: tacacs.image.tag}

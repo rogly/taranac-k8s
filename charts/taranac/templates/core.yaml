@@ -15,7 +15,7 @@ spec:
     - name: https-api
       port: 8000
 ---
-# The edge and est-gateway nginx configs address the API as "api"; this name is
+# The est-gateway and frontend nginx configs address the API as "api"; this name is
 # fixed by the images, hence one Taranac release per namespace.
 apiVersion: v1
 kind: Service
@@ -59,49 +59,6 @@ spec:
       terminationGracePeriodSeconds: {{ . }}
       {{- end }}
       containers:
-        - name: edge
-          {{- include "taranac.container.common" (dict "root" . "c" .Values.edge) | nindent 10 }}
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - /bin/sh
-                  - -c
-                  - |
-                    {{- include "taranac.resolver.sh" . | nindent 20 }}
-                    while true; do
-                      if [ -f /etc/nginx/conf.d/taranac.conf ]; then
-                        sed -i "s/127.0.0.11/$NS/g" /etc/nginx/conf.d/taranac.conf
-                        sed -i 's/frontend;/{{ include "taranac.fqdn" (dict "root" . "name" "frontend") }};/g' /etc/nginx/conf.d/taranac.conf
-                        if nginx -s reload 2>/dev/null; then
-                          break
-                        fi
-                      fi
-                      sleep 1
-                    done
-          env:
-            - name: TZ
-              value: {{ .Values.config.timezone | quote }}
-            - name: TARANAC_DOMAIN
-              value: {{ .Values.config.domain | quote }}
-            - name: TARANAC_EXTRA_ADDRESSES
-              value: {{ .Values.config.extraAddresses | quote }}
-            {{- with .Values.edge.extraEnv }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
-          ports:
-            - name: http
-              containerPort: 80
-            - name: https
-              containerPort: 443
-          volumeMounts:
-            - name: taranac-state
-              mountPath: /etc/taranac/tls-selfsigned
-              subPath: tls-selfsigned
-            - name: taranac-state
-              mountPath: /opt/taranac/certs
-              subPath: certs
-
         - name: api
           {{- include "taranac.container.common" (dict "root" . "c" .Values.api) | nindent 10 }}
           env:

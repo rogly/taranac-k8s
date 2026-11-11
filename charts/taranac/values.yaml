@@ -31,10 +31,8 @@ image:
   pullPolicy: ""
 
 config:
-  # Primary DNS name of the platform; used in generated certificates.
+  # Public DNS name of the web UI; the default Ingress host.
   domain: taranac.example.com
-  # Comma-separated extra SANs / addresses, e.g. "192.168.1.50,taranac.local".
-  extraAddresses: ""
   timezone: UTC
 
 serviceAccount:
@@ -154,8 +152,9 @@ persistence:
 # --------------------------------------------------------------------------
 # Networking
 # --------------------------------------------------------------------------
-# Taranac speaks raw TCP/UDP protocols (TACACS+, RADIUS, ...), so it is exposed
-# with Services rather than an Ingress by default. Two Services are created
+# The web UI is served through the Ingress below. Everything else Taranac speaks
+# (TACACS+, RADIUS, EST, SCEP) is raw TCP/UDP and is exposed with Services. Two
+# Services are created
 # because many load balancers cannot mix TCP and UDP on one Service; to share a
 # single IP between them use your load balancer's own annotations, e.g.
 # MetalLB: metallb.universe.tf/allow-shared-ip: "taranac" and
@@ -175,8 +174,6 @@ service:
     # Local keeps client source IPs, which matters for RADIUS/TACACS+ policy.
     externalTrafficPolicy: ""
     ports:
-      http: {port: 80, targetPort: 80}
-      https: {port: 443, targetPort: 443}
       tacacs: {port: 49, targetPort: 49}
       tacacs-tls: {port: 6049, targetPort: 6049}
       est-gateway: {port: 8445, targetPort: 8443}
@@ -197,18 +194,38 @@ service:
       nac-acct: {port: 1815, targetPort: 1815}
       nac-coa: {port: 3799, targetPort: 3799}
 
-# Optional Ingress for the web UI. The edge proxy terminates its own TLS, so
-# the backend is HTTPS: add your controller's "backend is HTTPS" annotation.
+# Web UI. Routes to the frontend Service (plain HTTP, port 80), which serves
+# the UI and proxies /api to the backend; there is no separate edge proxy, so
+# TLS terminates here. With no className the cluster's default IngressClass is
+# used. Requires an ingress controller.
+#
+# Taranac needs from the controller (names below are ingress-nginx's; use your
+# controller's equivalents):
+#   * request bodies up to 25 MB (bulk import)       proxy-body-size: "25m"
+#   * read/send timeouts of 600s for bulk operations  proxy-read-timeout: "600"
+#   * correct X-Forwarded-{For,Proto,Host,Port} headers, overwriting any sent by
+#     the client: the core builds collector/portal URLs from them.
+# Example:
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+#     nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+#     nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
 ingress:
-  enabled: false
+  enabled: true
   className: ""
   annotations: {}
   # Defaults to [config.domain].
   hosts: []
-  # Name of the port in service.tcp.ports to route to.
-  servicePort: https
-  # Standard Ingress TLS list, e.g. [{secretName: taranac-tls, hosts: [taranac.example.com]}]
+  # Standard Ingress TLS list, e.g. [{secretName: taranac-tls, hosts: [taranac.example.com]}].
+  # Ignored when certManager.enabled (which generates it).
   tls: []
+  # cert-manager (https://cert-manager.io): adds the issuer annotation and a TLS
+  # entry for all hosts, with the certificate stored in <fullname>-tls.
+  # Set exactly one of clusterIssuer / issuer.
+  certManager:
+    enabled: false
+    clusterIssuer: ""
+    issuer: ""
 
 # --------------------------------------------------------------------------
 # Keel (https://keel.sh) automatic image updates
@@ -262,13 +279,6 @@ core:
   # Disable if your Pod Security level forbids hostPath volumes.
   hostEtc:
     enabled: true
-
-edge:
-  image: {repository: ghcr.io/taranaclabs/taranac/edge, tag: "", digest: "", pullPolicy: ""}
-  resources: {}
-  securityContext: {}
-  extraEnv: []
-  extraEnvFrom: []
 
 api:
   image: {repository: ghcr.io/taranaclabs/taranac/api, tag: "", digest: "", pullPolicy: ""}

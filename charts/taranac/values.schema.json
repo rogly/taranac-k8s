@@ -7,7 +7,6 @@
       "required": ["domain"],
       "properties": {
         "domain": {"type": "string", "minLength": 1},
-        "extraAddresses": {"type": "string"},
         "timezone": {"type": "string"}
       }
     },

@@ -1,27 +1,43 @@
 {{- if .Values.ingress.enabled }}
-{{- if not .Values.service.tcp.enabled }}
-{{- fail "ingress.enabled requires service.tcp.enabled" }}
+{{- $ing := .Values.ingress }}
+{{- $cm := $ing.certManager }}
+{{- $hosts := default (list .Values.config.domain) $ing.hosts }}
+{{- $annotations := deepCopy (default dict $ing.annotations) }}
+{{- $tls := $ing.tls }}
+{{- if $cm.enabled }}
+{{- if and $cm.clusterIssuer $cm.issuer }}
+{{- fail "ingress.certManager: set only one of clusterIssuer or issuer" }}
+{{- end }}
+{{- if not (or $cm.clusterIssuer $cm.issuer) }}
+{{- fail "ingress.certManager.enabled requires clusterIssuer or issuer" }}
+{{- end }}
+{{- if $cm.clusterIssuer }}
+{{- $_ := set $annotations "cert-manager.io/cluster-issuer" $cm.clusterIssuer }}
+{{- else }}
+{{- $_ := set $annotations "cert-manager.io/issuer" $cm.issuer }}
+{{- end }}
+{{- $tls = list (dict "hosts" $hosts "secretName" (printf "%s-tls" (include "taranac.fullname" .))) }}
 {{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "taranac.fullname" . }}
   labels:
-    {{- include "taranac.labels" (dict "root" . "component" "core") | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+    {{- include "taranac.labels" (dict "root" . "component" "frontend") | nindent 4 }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.ingress.className }}
+  {{- with $ing.className }}
   ingressClassName: {{ . }}
   {{- end }}
-  {{- with .Values.ingress.tls }}
+  {{- with $tls }}
   tls:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   rules:
-    {{- range (default (list .Values.config.domain) .Values.ingress.hosts) }}
+    {{- range $hosts }}
     - host: {{ . | quote }}
       http:
         paths:
@@ -29,8 +45,8 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "taranac.fullname" $ }}-vip-tcp
+                name: frontend
                 port:
-                  name: {{ $.Values.ingress.servicePort }}
+                  name: http
     {{- end }}
 {{- end }}
