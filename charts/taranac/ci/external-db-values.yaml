@@ -1,0 +1,6 @@
+# External PostgreSQL: discrete fields (password stored in the chart Secret).
+postgresql:
+  enabled: false
+externalDatabase:
+  host: db.example.internal
+  password: s3cret

@@ -74,6 +74,17 @@ The repository separates vendor-agnostic resource definitions from site-specific
         └── storage-patch.yaml.example # Custom StorageClass patch template
 ```
 
+## Helm Chart
+
+A Helm chart equivalent to the Kustomize setup lives in [`charts/taranac`](charts/taranac) (bundled PostgreSQL subchart or external database, generated secrets, Keel support, load balancer/ingress/storage hooks). See its [README](charts/taranac/README.md).
+
+```bash
+helm dependency build charts/taranac
+helm install taranac charts/taranac -n taranac --create-namespace --set config.domain=taranac.example.com
+```
+
+Released chart versions are also published to `oci://ghcr.io/rogly/charts/taranac` (see the chart README).
+
 ## Prerequisites
 
 1. **Kubernetes Cluster:** Kubernetes 1.28+ (K3s, vanilla `kubeadm`, RKE2, or cloud-managed K8s).
@@ -209,6 +220,6 @@ curl -v "http://${VIP}:8446/scep?operation=GetCACert"
 kubectl exec -n taranac taranac-core-0 -c api -- curl -s -o /dev/null -w "%{http_code}\n" \
   --cacert /opt/taranac/certs/ca.crt \
   -H "X-API-Key: $(kubectl get secret taranac-secrets -n taranac -o jsonpath='{.data.REPORTS_RENDERER_API_KEY}' | base64 -d)" \
-  https://taranac-renderer:8443/api/v1/health
+  https://taranac-renderer:8443/healthz
 # Expected: 200
 ```

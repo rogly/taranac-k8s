@@ -1,0 +1,168 @@
+# taranac Helm chart
+
+Deploys the Taranac NAC / TACACS+ / RADIUS / PKI / EST-SCEP platform. It is the
+Helm equivalent of the Kustomize setup in the repository root.
+
+```bash
+helm install taranac ./charts/taranac -n taranac --create-namespace \
+  --set config.domain=taranac.example.com
+```
+
+Out of the box this installs the core StatefulSet, the frontend, renderer and
+MFA Deployments, a bundled PostgreSQL (Bitnami subchart), generated application
+secrets, a shared state PVC on the default StorageClass, an Ingress for the web
+UI, and two LoadBalancer Services (TCP and UDP) for TACACS+, EST, SCEP, RADIUS
+and NAC. Nothing cluster-specific is set; use the hooks below.
+
+Released versions are published as an OCI artifact to GitHub Container Registry:
+
+```bash
+helm install taranac oci://ghcr.io/rogly/charts/taranac --version <version> \
+  -n taranac --create-namespace --set config.domain=taranac.example.com
+```
+
+To release, bump `version` in `Chart.yaml`, merge, then push a tag named
+`taranac-<version>` (for example `taranac-0.1.0`); the `Helm chart` workflow
+lints, packages, pushes and signs it (keyless, cosign). The tag must match the
+chart version. Verify a download with
+`cosign verify ghcr.io/rogly/charts/taranac:<version> --certificate-identity-regexp 'https://github.com/rogly/taranac-k8s/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+
+## Requirements
+
+* Kubernetes 1.26+, Helm 3.8+ (OCI dependencies).
+* A default StorageClass (any access mode). The shared state volume is
+  ReadWriteOnce by default and the pods that mount it are co-scheduled on one
+  node; with an RWX class set `persistence.state.accessModes={ReadWriteMany}`
+  to let them spread out.
+* An ingress controller (the web UI is served through an Ingress; there is no
+  built-in proxy) and a LoadBalancer implementation (or set `service.*.type`).
+
+Run `helm dependency build charts/taranac` once if you install from a checkout.
+
+## Common customisation
+
+| Need | Values |
+| --- | --- |
+| Load balancer IP / annotations (e.g. MetalLB shared IP) | `service.tcp.*`, `service.udp.*` (`annotations`, `loadBalancerIP`, `loadBalancerClass`, `externalTrafficPolicy`, `ports`) |
+| NodePort / ClusterIP instead of LB | `service.tcp.type`, `service.udp.type` |
+| Web UI host, class, annotations, TLS | `ingress.*`, `config.domain` (see below) |
+| Storage | `persistence.state.*`, `postgresql.primary.persistence.*` |
+| Private registry / mirror | `global.imageRegistry`, `imagePullSecrets`, per-component `image.*` |
+| Resources, security contexts, scheduling | per-component `resources`, `securityContext`, `nodeSelector`, ... |
+| Extra env from a ConfigMap/Secret | per-component `extraEnv`, `extraEnvFrom` |
+
+## Web UI and TLS
+
+Taranac's own edge proxy is not deployed. The Ingress routes straight to the
+`frontend` Service (plain HTTP), which serves the UI and proxies `/api`, so TLS
+terminates at the Ingress. The host defaults to `config.domain`; the cluster's
+default IngressClass is used unless `ingress.className` is set.
+
+Your controller must provide what Taranac relies on (settings shown are
+ingress-nginx's; use your controller's equivalents):
+
+* **Body size:** 25 MB for collector uploads (`/api/v1/ncm/collector/*`). The
+  frontend itself caps every other API path at 3 MB.
+* **Timeouts:** 600 s read/send for bulk operations.
+* **Trustworthy forwarded headers.** Without the edge nothing overwrites
+  `X-Forwarded-For/Proto/Host/Port` or `X-Real-IP`, yet the core builds
+  collector and portal URLs and records client IPs from them. A controller that
+  accepts these from clients lets anyone choose them. ingress-nginx does so
+  when `use-forwarded-headers` is `"true"` with a broad `proxy-real-ip-cidr`
+  (such as `0.0.0.0/0`): we saw a client-supplied `X-Forwarded-Host` become the
+  upstream `Host`, `X-Real-IP` and `X-Forwarded-Port` follow client values, and
+  `X-Forwarded-Proto: http` redirect to an attacker-chosen host. Unless the
+  controller sits behind a trusted L7 proxy or CDN, leave `use-forwarded-headers`
+  off; if it does, restrict `proxy-real-ip-cidr` to that proxy's addresses.
+  Check by sending spoofed headers to an echo service behind the same class.
+
+```yaml
+ingress:
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  certManager:               # cert-manager issues and renews the certificate
+    enabled: true
+    clusterIssuer: letsencrypt-production
+```
+
+`certManager` adds the issuer annotation and a TLS entry for every host
+(Secret `<release>-taranac-tls`). To manage TLS yourself, leave it off and set
+`ingress.tls` to a standard Ingress TLS list. Standalone collectors and captive
+portals that pinned a previous certificate must be re-pointed at the new one.
+
+TACACS+ (49, 6049), EST (8445, mutual TLS verified by the gateway itself) and
+SCEP (8446) are not web traffic and stay on the `-vip-tcp` Service; RADIUS and
+NAC stay on `-vip-udp`.
+
+## Database
+
+Default: the bundled PostgreSQL subchart. Its password is generated by the
+subchart; the `taranac_mfa` database is created by an init script on first start.
+
+To use an external server set `postgresql.enabled=false` and describe it in
+`externalDatabase`. Each detail may come from an inline value, a ConfigMap or a
+Secret (precedence: inline/URI > ConfigMap > Secret > default):
+
+```yaml
+# Discrete fields
+externalDatabase: {host: db.internal, user: taranac, name: taranac, password: "..."}
+
+# Inline URI (password is moved into the chart Secret; must be URL-safe)
+externalDatabase: {uri: "postgresql://taranac:pw@db.internal:5432/taranac"}
+
+# CloudNativePG: reuse the generated <cluster>-app Secret
+externalDatabase:
+  existingSecret: my-cluster-app
+  existingSecretKeys: {host: host, port: port, user: user, name: dbname}
+
+# Non-sensitive parts from a ConfigMap, password from a Secret
+externalDatabase: {existingConfigMap: db-conn, existingSecret: db-creds}
+```
+
+The MFA database (`database.mfaName`, default `taranac_mfa`) must already exist
+on an external server. The three consumers need different URL schemes
+(`postgresql+asyncpg://` vs `postgresql://`) and the MFA service uses a
+different database, so a URI stored in a Secret is not consumed; supply
+discrete keys instead. The bundled PostgreSQL user is not a superuser (the
+Kustomize setup used one); if Taranac needs extensions requiring superuser,
+create them out of band.
+
+## Secrets
+
+`MASTER_KEY`, `SECRET_KEY`, `EST_PROXY_KEY`, `TARANAC_MFA_API_KEY` and
+`REPORTS_RENDERER_API_KEY` are generated on first install and preserved across
+upgrades. Override with `secrets.values.<KEY>` or bring your own Secret with
+`secrets.existingSecret`. **Back up `MASTER_KEY`.** Tools that cannot `lookup`
+(Argo CD, `helm template`) regenerate generated keys on every render, so use
+`secrets.values` or `existingSecret` with them.
+
+## Keel
+
+* **Kubernetes provider:** `--set keel.enabled=true` adds `keel.sh/policy`,
+  `trigger`, `pollSchedule`, `match-tag` (plus `approvals`, `notify` and
+  `keel.annotations` when set) to the Taranac workloads. Defaults track a moving
+  tag (`force` + `matchTag`); for semver tags use e.g. `keel.policy=minor
+  --set keel.matchTag=false`. Keel patches live workloads, so a later
+  `helm upgrade` resets images unless you pass the current tags.
+* **Helm provider:** leave `keel.enabled=false` and use
+  `-f examples/values-keel-helm.yaml`; Keel then upgrades the release itself.
+
+Use one provider, not both. Keel does not manage the PostgreSQL subchart.
+
+## Notes
+
+* The images address `api`, `frontend`, `taranac-renderer` and `taranac-mfa` by
+  fixed Service names, so run one release per namespace. Pod selectors differ
+  from the Kustomize manifests, so migrating means recreating the workloads.
+* The `postStart` hooks that point nginx at cluster DNS read the resolver from
+  the pod's `resolv.conf`; no Service CIDR setting is needed (`dnsResolver`
+  overrides it).
+* `core.hostEtc.enabled` mounts the node's `/etc` read-only into the `api`
+  container (as the Kustomize manifests do); disable it if hostPath volumes are
+  not permitted.
+* The Bitnami PostgreSQL chart currently publishes only `latest` images
+  (PostgreSQL 18 at the time of writing). Pin `postgresql.image.*` to the major
+  version you intend to keep, or use an external database.

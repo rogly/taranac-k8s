@@ -1,0 +1,46 @@
+Taranac has been installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Watch the rollout:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+{{- if .Values.ingress.enabled }}
+
+Web UI: {{ if or .Values.ingress.tls .Values.ingress.certManager.enabled }}https{{ else }}http{{ end }}://{{ first (default (list .Values.config.domain) .Values.ingress.hosts) }}
+  kubectl get ingress -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}
+(point DNS at the ingress controller's address; TLS terminates at the Ingress)
+{{- else }}
+
+The Ingress is disabled: nothing exposes the web UI. Enable ingress.enabled or
+route to the "frontend" Service (port 80) yourself.
+{{- end }}
+{{- if .Values.service.tcp.enabled }}
+
+TACACS+ / EST / SCEP (TCP) address:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}-vip-tcp
+{{- end }}
+{{- if .Values.service.udp.enabled }}
+RADIUS/NAC (UDP) address:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}-vip-udp
+{{- end }}
+{{- if and .Values.service.tcp.enabled .Values.service.udp.enabled (eq .Values.service.tcp.type "LoadBalancer") (not .Values.service.tcp.annotations) }}
+
+NOTE: the TCP and UDP Services are separate load balancers and will get
+different addresses unless your load balancer is told to share one. Set
+service.tcp.annotations / service.udp.annotations (and loadBalancerIP if
+needed) as your load balancer requires.
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+
+Application keys are stored in Secret "{{ include "taranac.secretName" . }}".
+Back up MASTER_KEY: data encrypted with it cannot be recovered without it.
+{{- end }}
+{{- if not (has "ReadWriteMany" .Values.persistence.state.accessModes) }}
+
+The shared state volume is ReadWriteOnce, so the core, frontend and renderer
+pods are scheduled on the same node. For multi-node spreading use an
+RWX-capable StorageClass with persistence.state.accessModes={ReadWriteMany}.
+{{- end }}
+{{- if .Values.keel.enabled }}
+
+Keel is enabled: workloads carry keel.sh/* annotations (policy={{ .Values.keel.policy }}, trigger={{ .Values.keel.trigger }}).
+{{- end }}

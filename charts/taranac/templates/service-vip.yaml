@@ -1,0 +1,53 @@
+{{- $fullname := include "taranac.fullname" . }}
+{{- $ctx := dict "root" . "component" "core" }}
+{{- range $proto := list "tcp" "udp" }}
+{{- $svc := index $.Values.service $proto }}
+{{- if $svc.enabled }}
+{{- $exposed := or (eq $svc.type "LoadBalancer") (eq $svc.type "NodePort") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-vip-{{ $proto }}
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+    {{- with $svc.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $svc.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svc.type }}
+  {{- if and $exposed $svc.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ $svc.externalTrafficPolicy }}
+  {{- end }}
+  {{- if eq $svc.type "LoadBalancer" }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    {{- range $name, $p := $svc.ports }}
+    {{- if $p }}
+    - name: {{ $name }}
+      port: {{ $p.port }}
+      targetPort: {{ default $p.port $p.targetPort }}
+      protocol: {{ default (upper $proto) $p.protocol }}
+      {{- if and $exposed $p.nodePort }}
+      nodePort: {{ $p.nodePort }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

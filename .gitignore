@@ -12,3 +12,5 @@ overlays/local/storage-patch.yaml
 .DS_Store
 *.swp
 *.bak
+# Helm chart dependency archives (restored with `helm dependency build`)
+charts/*/charts/*.tgz

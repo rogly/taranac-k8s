@@ -1,0 +1,6 @@
+# External PostgreSQL managed by CloudNativePG (standard "<cluster>-app" Secret).
+postgresql:
+  enabled: false
+externalDatabase:
+  existingSecret: taranac-db-app
+  existingSecretKeys: {host: host, port: port, user: user, name: dbname}
