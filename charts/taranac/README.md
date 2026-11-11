@@ -16,8 +16,10 @@ Services (TCP and UDP). Nothing cluster-specific is set; use the hooks below.
 ## Requirements
 
 * Kubernetes 1.26+, Helm 3.8+ (OCI dependencies).
-* An RWX-capable StorageClass for the shared state volume, or a single-node
-  cluster with `--set persistence.state.accessModes={ReadWriteOnce}`.
+* A default StorageClass (any access mode). The shared state volume is
+  ReadWriteOnce by default and the pods that mount it are co-scheduled on one
+  node; with an RWX class set `persistence.state.accessModes={ReadWriteMany}`
+  to let them spread out.
 * A LoadBalancer implementation (or set `service.*.type`).
 
 Run `helm dependency build charts/taranac` once if you install from a checkout.

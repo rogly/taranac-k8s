@@ -139,14 +139,15 @@ externalDatabase:
 # Storage
 # --------------------------------------------------------------------------
 persistence:
-  # Shared state (certificates, backups). Mounted by the core, frontend and
-  # renderer pods, so it needs ReadWriteMany unless everything runs on one
-  # node (then ["ReadWriteOnce"] is fine, e.g. with local-path on k3s).
+  # Shared state (certificates, backups), mounted by the core, frontend and
+  # renderer pods. Defaults to ReadWriteOnce so it works on any StorageClass; the
+  # chart then co-schedules those pods on one node. With an RWX-capable class set
+  # accessModes to ["ReadWriteMany"] to let them spread across nodes.
   state:
     existingClaim: ""
     storageClass: ""   # empty = cluster default
     accessModes:
-      - ReadWriteMany
+      - ReadWriteOnce
     size: 5Gi
     annotations: {}
 

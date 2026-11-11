@@ -25,11 +25,11 @@ needed) as your load balancer requires.
 Application keys are stored in Secret "{{ include "taranac.secretName" . }}".
 Back up MASTER_KEY: data encrypted with it cannot be recovered without it.
 {{- end }}
-{{- if and (not .Values.persistence.state.existingClaim) (has "ReadWriteMany" .Values.persistence.state.accessModes) }}
+{{- if not (has "ReadWriteMany" .Values.persistence.state.accessModes) }}
 
-The shared state volume is ReadWriteMany. If your StorageClass lacks RWX
-support, set persistence.state.accessModes={ReadWriteOnce} (single node only)
-or persistence.state.storageClass to an RWX-capable class.
+The shared state volume is ReadWriteOnce, so the core, frontend and renderer
+pods are scheduled on the same node. For multi-node spreading use an
+RWX-capable StorageClass with persistence.state.accessModes={ReadWriteMany}.
 {{- end }}
 {{- if .Values.keel.enabled }}
 

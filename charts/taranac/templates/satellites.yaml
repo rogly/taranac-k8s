@@ -30,7 +30,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- include "taranac.pod.common" (dict "root" . "c" $c) | nindent 6 }}
+      {{- include "taranac.pod.common" (dict "root" . "c" $c "state" true) | nindent 6 }}
       containers:
         - name: frontend
           {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
@@ -118,7 +118,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- include "taranac.pod.common" (dict "root" . "c" $c) | nindent 6 }}
+      {{- include "taranac.pod.common" (dict "root" . "c" $c "state" true) | nindent 6 }}
       containers:
         - name: renderer
           {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}

@@ -110,7 +110,8 @@ securityContext:
 {{- end }}
 
 {{/*
-Pod spec fields shared by every workload. Takes (dict "root" $ "c" <component values>).
+Pod spec fields shared by every workload. Takes (dict "root" $ "c" <component values>
+["state" true if the pod mounts the state PVC] ["anchor" true for the core pod]).
 */}}
 {{- define "taranac.pod.common" -}}
 {{- with .root.Values.imagePullSecrets }}
@@ -132,7 +133,27 @@ priorityClassName: {{ . }}
 nodeSelector:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- with .c.affinity }}
+{{- /*
+With a ReadWriteOnce state volume every pod that mounts it must run on the same
+node: "state" pods (frontend, renderer) must follow the core pod, and the core
+pod prefers the node they are on so restarts do not strand the volume.
+*/ -}}
+{{- $aff := deepCopy (default dict .c.affinity) }}
+{{- if not (has "ReadWriteMany" .root.Values.persistence.state.accessModes) }}
+{{- $pa := default dict $aff.podAffinity }}
+{{- if .state }}
+{{- $req := default list (index $pa "requiredDuringSchedulingIgnoredDuringExecution") }}
+{{- $term := dict "topologyKey" "kubernetes.io/hostname" "labelSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (include "taranac.name" .root) "app.kubernetes.io/instance" .root.Release.Name "app.kubernetes.io/component" "core")) }}
+{{- $_ := set $pa "requiredDuringSchedulingIgnoredDuringExecution" (append $req $term) }}
+{{- $_ := set $aff "podAffinity" $pa }}
+{{- else if .anchor }}
+{{- $pref := default list (index $pa "preferredDuringSchedulingIgnoredDuringExecution") }}
+{{- $term := dict "weight" 100 "podAffinityTerm" (dict "topologyKey" "kubernetes.io/hostname" "labelSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (include "taranac.name" .root) "app.kubernetes.io/instance" .root.Release.Name) "matchExpressions" (list (dict "key" "app.kubernetes.io/component" "operator" "In" "values" (list "frontend" "renderer"))))) }}
+{{- $_ := set $pa "preferredDuringSchedulingIgnoredDuringExecution" (append $pref $term) }}
+{{- $_ := set $aff "podAffinity" $pa }}
+{{- end }}
+{{- end }}
+{{- with $aff }}
 affinity:
   {{- toYaml . | nindent 2 }}
 {{- end }}
