@@ -218,6 +218,6 @@ curl -v "http://${VIP}:8446/scep?operation=GetCACert"
 kubectl exec -n taranac taranac-core-0 -c api -- curl -s -o /dev/null -w "%{http_code}\n" \
   --cacert /opt/taranac/certs/ca.crt \
   -H "X-API-Key: $(kubectl get secret taranac-secrets -n taranac -o jsonpath='{.data.REPORTS_RENDERER_API_KEY}' | base64 -d)" \
-  https://taranac-renderer:8443/api/v1/health
+  https://taranac-renderer:8443/healthz
 # Expected: 200
 ```

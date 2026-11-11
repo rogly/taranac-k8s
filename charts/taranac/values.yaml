@@ -334,6 +334,8 @@ frontend:
 
 renderer:
   replicaCount: 1
+  # Hold the renderer back until the core pod has minted its certificates.
+  waitForCerts: true
   image: {repository: ghcr.io/taranaclabs/taranac/renderer, tag: "", digest: "", pullPolicy: ""}
   resources: {}
   securityContext: {}
