@@ -1,0 +1,4 @@
+postgresql:
+  enabled: false
+externalDatabase:
+  uri: postgresql://appuser:pw123@pg.example.internal:6432/appdb

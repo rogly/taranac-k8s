@@ -1,0 +1,4 @@
+keel:
+  enabled: true
+  approvals: 1
+  notify: slack

@@ -1,0 +1,19 @@
+# Keel Helm provider: Keel reads this `keel` block from the release values and
+# upgrades the release when a newer image appears. Leave keel.enabled=false.
+# Each repository/tag pair points at the values paths the chart reads.
+keel:
+  policy: force
+  trigger: poll
+  pollSchedule: "@every 5m"
+  matchTag: true
+  images:
+    - {repository: edge.image.repository,       tag: edge.image.tag}
+    - {repository: api.image.repository,        tag: api.image.tag}
+    - {repository: winbind.image.repository,    tag: winbind.image.tag}
+    - {repository: tacacs.image.repository,     tag: tacacs.image.tag}
+    - {repository: radius.image.repository,     tag: radius.image.tag}
+    - {repository: nac.image.repository,        tag: nac.image.tag}
+    - {repository: estGateway.image.repository, tag: estGateway.image.tag}
+    - {repository: frontend.image.repository,   tag: frontend.image.tag}
+    - {repository: renderer.image.repository,   tag: renderer.image.tag}
+    - {repository: mfa.image.repository,        tag: mfa.image.tag}

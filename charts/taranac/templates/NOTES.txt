@@ -1,0 +1,37 @@
+Taranac has been installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Watch the rollout:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+{{- if .Values.service.tcp.enabled }}
+
+Web UI / edge address (once the load balancer has assigned one):
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}-vip-tcp
+  https://{{ .Values.config.domain }}  (point DNS at the address above)
+{{- end }}
+{{- if .Values.service.udp.enabled }}
+RADIUS/NAC (UDP) address:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}-vip-udp
+{{- end }}
+{{- if and .Values.service.tcp.enabled .Values.service.udp.enabled (eq .Values.service.tcp.type "LoadBalancer") (not .Values.service.tcp.annotations) }}
+
+NOTE: the TCP and UDP Services are separate load balancers and will get
+different addresses unless your load balancer is told to share one. Set
+service.tcp.annotations / service.udp.annotations (and loadBalancerIP if
+needed) as your load balancer requires.
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+
+Application keys are stored in Secret "{{ include "taranac.secretName" . }}".
+Back up MASTER_KEY: data encrypted with it cannot be recovered without it.
+{{- end }}
+{{- if and (not .Values.persistence.state.existingClaim) (has "ReadWriteMany" .Values.persistence.state.accessModes) }}
+
+The shared state volume is ReadWriteMany. If your StorageClass lacks RWX
+support, set persistence.state.accessModes={ReadWriteOnce} (single node only)
+or persistence.state.storageClass to an RWX-capable class.
+{{- end }}
+{{- if .Values.keel.enabled }}
+
+Keel is enabled: workloads carry keel.sh/* annotations (policy={{ .Values.keel.policy }}, trigger={{ .Values.keel.trigger }}).
+{{- end }}

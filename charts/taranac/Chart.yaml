@@ -1,0 +1,24 @@
+apiVersion: v2
+name: taranac
+description: >-
+  Taranac network access control platform (NAC, TACACS+, RADIUS, PKI and
+  EST/SCEP) for Kubernetes.
+type: application
+version: 0.1.0
+# Default image tag for every Taranac component (overridable with image.tag).
+appVersion: "latest"
+kubeVersion: ">=1.26.0-0"
+home: https://github.com/daedalus01/taranac-k8s
+keywords:
+  - nac
+  - radius
+  - tacacs
+  - 802.1x
+  - pki
+  - est
+  - scep
+dependencies:
+  - name: postgresql
+    version: "18.x.x"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled

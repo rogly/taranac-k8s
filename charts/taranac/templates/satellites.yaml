@@ -1,0 +1,236 @@
+{{- $fullname := include "taranac.fullname" . -}}
+{{- /*
+Service names below (frontend, taranac-renderer, taranac-mfa) are addressed by
+name from inside the Taranac images, so they are fixed rather than prefixed
+with the release name.
+*/ -}}
+
+{{- /* ---------------------------- frontend ---------------------------- */}}
+{{- $c := .Values.frontend }}
+{{- $ctx := dict "root" . "component" "frontend" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-frontend
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+  {{- include "taranac.workload.annotations" . | nindent 2 }}
+spec:
+  replicas: {{ $c.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "taranac.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "taranac.pod.annotations" (dict "root" . "c" $c) | nindent 8 }}
+      labels:
+        {{- include "taranac.selectorLabels" $ctx | nindent 8 }}
+        {{- with $c.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "taranac.pod.common" (dict "root" . "c" $c) | nindent 6 }}
+      containers:
+        - name: frontend
+          {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    {{- include "taranac.resolver.sh" . | nindent 20 }}
+                    while true; do
+                      if [ -f /etc/nginx/conf.d/default.conf ]; then
+                        sed -i "s/127.0.0.11/$NS/g" /etc/nginx/conf.d/default.conf
+                        sed -i 's/set \$api_upstream api;/set \$api_upstream {{ include "taranac.fqdn" (dict "root" . "name" "api") }};/g' /etc/nginx/conf.d/default.conf
+                        if nginx -s reload 2>/dev/null; then
+                          break
+                        fi
+                      fi
+                      sleep 1
+                    done
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 80
+          {{- with $c.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $c.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: taranac-certs
+              mountPath: /opt/taranac/certs
+              subPath: certs
+              readOnly: true
+      volumes:
+        - name: taranac-certs
+          persistentVolumeClaim:
+            claimName: {{ include "taranac.stateClaimName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+{{- /* ---------------------------- renderer ---------------------------- */}}
+{{- $c := .Values.renderer }}
+{{- $ctx := dict "root" . "component" "renderer" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-renderer
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+  {{- include "taranac.workload.annotations" . | nindent 2 }}
+spec:
+  replicas: {{ $c.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "taranac.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "taranac.pod.annotations" (dict "root" . "c" $c) | nindent 8 }}
+      labels:
+        {{- include "taranac.selectorLabels" $ctx | nindent 8 }}
+        {{- with $c.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "taranac.pod.common" (dict "root" . "c" $c) | nindent 6 }}
+      containers:
+        - name: renderer
+          {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "REPORTS_RENDERER_API_KEY") | nindent 12 }}
+            - name: REPORTS_RENDERER_TLS_CERT
+              value: "/opt/taranac/certs/renderer/server.crt"
+            - name: REPORTS_RENDERER_TLS_KEY
+              value: "/opt/taranac/certs/renderer/server.key"
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: https
+              containerPort: 8443
+          {{- with $c.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $c.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: taranac-certs
+              mountPath: /opt/taranac/certs
+              subPath: certs
+              readOnly: true
+      volumes:
+        - name: taranac-certs
+          persistentVolumeClaim:
+            claimName: {{ include "taranac.stateClaimName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taranac-renderer
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+---
+{{- /* ------------------------------ mfa ------------------------------- */}}
+{{- $c := .Values.mfa }}
+{{- $ctx := dict "root" . "component" "mfa" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-mfa
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+  {{- include "taranac.workload.annotations" . | nindent 2 }}
+spec:
+  replicas: {{ $c.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "taranac.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "taranac.pod.annotations" (dict "root" . "c" $c) | nindent 8 }}
+      labels:
+        {{- include "taranac.selectorLabels" $ctx | nindent 8 }}
+        {{- with $c.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "taranac.pod.common" (dict "root" . "c" $c) | nindent 6 }}
+      containers:
+        - name: mfa
+          {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "TARANAC_MFA_API_KEY") | nindent 12 }}
+            {{- include "taranac.db.env" . | nindent 12 }}
+            - name: TARANAC_MFA_DATABASE_URL
+              value: {{ include "taranac.db.url" (dict "scheme" "postgresql" "db" (include "taranac.db.mfaName" .)) | quote }}
+            - name: INTERNAL_TLS_VERIFY
+              value: {{ $c.internalTlsVerify | quote }}
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: https
+              containerPort: 8443
+          {{- with $c.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $c.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taranac-mfa
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https

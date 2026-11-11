@@ -1,0 +1,36 @@
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.service.tcp.enabled }}
+{{- fail "ingress.enabled requires service.tcp.enabled" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "taranac.fullname" . }}
+  labels:
+    {{- include "taranac.labels" (dict "root" . "component" "core") | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range (default (list .Values.config.domain) .Values.ingress.hosts) }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "taranac.fullname" $ }}-vip-tcp
+                port:
+                  name: {{ $.Values.ingress.servicePort }}
+    {{- end }}
+{{- end }}

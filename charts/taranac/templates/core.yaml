@@ -1,0 +1,316 @@
+{{- $fullname := include "taranac.fullname" . -}}
+{{- $core := .Values.core -}}
+{{- $ctx := dict "root" . "component" "core" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-core-nodes
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: https-api
+      port: 8000
+---
+# The edge and est-gateway nginx configs address the API as "api"; this name is
+# fixed by the images, hence one Taranac release per namespace.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: https-api
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-core
+  labels:
+    {{- include "taranac.labels" $ctx | nindent 4 }}
+  {{- include "taranac.workload.annotations" . | nindent 2 }}
+spec:
+  serviceName: {{ $fullname }}-core-nodes
+  replicas: {{ $core.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "taranac.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "taranac.pod.annotations" (dict "root" . "c" $core) | nindent 8 }}
+      labels:
+        {{- include "taranac.selectorLabels" $ctx | nindent 8 }}
+        {{- with $core.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "taranac.pod.common" (dict "root" . "c" $core) | nindent 6 }}
+      {{- with $core.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ . }}
+      {{- end }}
+      containers:
+        - name: edge
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.edge) | nindent 10 }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    {{- include "taranac.resolver.sh" . | nindent 20 }}
+                    while true; do
+                      if [ -f /etc/nginx/conf.d/taranac.conf ]; then
+                        sed -i "s/127.0.0.11/$NS/g" /etc/nginx/conf.d/taranac.conf
+                        sed -i 's/frontend;/{{ include "taranac.fqdn" (dict "root" . "name" "frontend") }};/g' /etc/nginx/conf.d/taranac.conf
+                        if nginx -s reload 2>/dev/null; then
+                          break
+                        fi
+                      fi
+                      sleep 1
+                    done
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            - name: TARANAC_DOMAIN
+              value: {{ .Values.config.domain | quote }}
+            - name: TARANAC_EXTRA_ADDRESSES
+              value: {{ .Values.config.extraAddresses | quote }}
+            {{- with .Values.edge.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 80
+            - name: https
+              containerPort: 443
+          volumeMounts:
+            - name: taranac-state
+              mountPath: /etc/taranac/tls-selfsigned
+              subPath: tls-selfsigned
+            - name: taranac-state
+              mountPath: /opt/taranac/certs
+              subPath: certs
+
+        - name: api
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.api) | nindent 10 }}
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "MASTER_KEY") | nindent 12 }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "SECRET_KEY") | nindent 12 }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "EST_PROXY_KEY") | nindent 12 }}
+            - name: EST_GATEWAY_PORT
+              value: {{ dig "est-gateway" "port" 8445 .Values.service.tcp.ports | quote }}
+            - name: SCEP_HTTP_PORT
+              value: {{ dig "scep-http" "port" 8446 .Values.service.tcp.ports | quote }}
+            {{- include "taranac.db.env" . | nindent 12 }}
+            - name: DATABASE_URL
+              value: {{ include "taranac.db.url" (dict "scheme" "postgresql+asyncpg" "db" "$(K8S_DB_NAME)") | quote }}
+            - name: REPORTS_RENDERER_URL
+              value: "https://taranac-renderer:8443"
+            - name: REPORTS_RENDERER_CA_CERT
+              value: "/opt/taranac/certs/ca.crt"
+            {{- include "taranac.secretEnv" (dict "root" . "key" "REPORTS_RENDERER_API_KEY") | nindent 12 }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            {{- if $core.hostEtc.enabled }}
+            - name: host-etc
+              mountPath: /host/etc
+              readOnly: true
+            {{- end }}
+            - name: tacacs-cfg
+              mountPath: /etc/tac_plus
+            - name: radius-cfg
+              mountPath: /mnt/radius_config
+            - name: nac-cfg
+              mountPath: /mnt/nac_config
+            - name: captive-portal-cfg
+              mountPath: /mnt/captive_portal_config
+            - name: winbind-cfg
+              mountPath: /mnt/winbind_config
+            - name: winbind-runtime
+              mountPath: /mnt/winbind_runtime
+            - name: taranac-state
+              mountPath: /opt/taranac/certs
+              subPath: certs
+            - name: taranac-state
+              mountPath: /app/backups
+              subPath: backups
+
+        - name: winbind
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.winbind) | nindent 10 }}
+          {{- with .Values.winbind.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: winbind-cfg
+              mountPath: /etc/samba
+            - name: winbind-socket
+              mountPath: /var/lib/samba/winbindd_privileged
+            - name: winbind-run
+              mountPath: /var/run/samba/winbindd
+            - name: winbind-runtime
+              mountPath: /var/lib/taranac-winbind
+
+        - name: tacacs
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.tacacs) | nindent 10 }}
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- include "taranac.db.env" . | nindent 12 }}
+            - name: TACACS_DB_URL
+              value: {{ include "taranac.db.url" (dict "scheme" "postgresql" "db" "$(K8S_DB_NAME)") | quote }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "MASTER_KEY") | nindent 12 }}
+            {{- with .Values.tacacs.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: tacacs-tcp
+              containerPort: 49
+            - name: tacacs-tls
+              containerPort: 6049
+          volumeMounts:
+            - name: tacacs-cfg
+              mountPath: /etc/tac_plus
+            - name: taranac-state
+              mountPath: /opt/taranac/certs
+              subPath: certs
+
+        - name: radius
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.radius) | nindent 10 }}
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- include "taranac.db.env" . | nindent 12 }}
+            - name: RADIUS_DB_URL
+              value: {{ include "taranac.db.url" (dict "scheme" "postgresql" "db" "$(K8S_DB_NAME)") | quote }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "MASTER_KEY") | nindent 12 }}
+            - name: SMB_CONF_PATH
+              value: "/etc/raddb/smb.conf"
+            {{- with .Values.radius.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: radius-auth
+              containerPort: 1812
+              protocol: UDP
+            - name: radius-acct
+              containerPort: 1813
+              protocol: UDP
+          volumeMounts:
+            - name: radius-cfg
+              mountPath: /etc/raddb
+            - name: winbind-socket
+              mountPath: /var/lib/samba/winbindd_privileged
+            - name: winbind-run
+              mountPath: /var/run/samba/winbindd
+            - name: taranac-state
+              mountPath: /opt/taranac/certs
+              subPath: certs
+
+        - name: nac
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.nac) | nindent 10 }}
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            {{- include "taranac.db.env" . | nindent 12 }}
+            - name: NAC_DB_URL
+              value: {{ include "taranac.db.url" (dict "scheme" "postgresql" "db" "$(K8S_DB_NAME)") | quote }}
+            {{- include "taranac.secretEnv" (dict "root" . "key" "MASTER_KEY") | nindent 12 }}
+            - name: SMB_CONF_PATH
+              value: "/etc/raddb/smb.conf"
+            {{- with .Values.nac.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: nac-auth
+              containerPort: 1814
+              protocol: UDP
+            - name: nac-acct
+              containerPort: 1815
+              protocol: UDP
+            - name: nac-coa
+              containerPort: 3799
+              protocol: UDP
+          volumeMounts:
+            - name: nac-cfg
+              mountPath: /etc/raddb
+            - name: winbind-socket
+              mountPath: /var/lib/samba/winbindd_privileged
+            - name: winbind-run
+              mountPath: /var/run/samba/winbindd
+            - name: taranac-state
+              mountPath: /opt/taranac/certs
+              subPath: certs
+
+        - name: est-gateway
+          {{- include "taranac.container.common" (dict "root" . "c" .Values.estGateway) | nindent 10 }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    {{- include "taranac.resolver.sh" . | nindent 20 }}
+                    while true; do
+                      if [ -f /etc/nginx/templates/est.conf.template ] && [ -f /etc/nginx/templates/est-proxy.conf.template ]; then
+                        sed -i "s/127.0.0.11/$NS/g" /etc/nginx/templates/est.conf.template
+                        sed -i 's/set \$api_upstream api;/set \$api_upstream {{ include "taranac.fqdn" (dict "root" . "name" "api") }};/g' /etc/nginx/templates/est-proxy.conf.template
+                        sed -i "s/127.0.0.11/$NS/g" /etc/nginx/conf.d/default.conf
+                        sed -i 's/set \$api_upstream api;/set \$api_upstream {{ include "taranac.fqdn" (dict "root" . "name" "api") }};/g' /etc/nginx/snippets/est-proxy.conf
+                        if nginx -s reload 2>/dev/null; then
+                          break
+                        fi
+                      fi
+                      sleep 1
+                    done
+          env:
+            - name: TZ
+              value: {{ .Values.config.timezone | quote }}
+            - name: EST_GATEWAY_PORT
+              value: "8443"
+            {{- include "taranac.secretEnv" (dict "root" . "key" "EST_PROXY_KEY") | nindent 12 }}
+            {{- with .Values.estGateway.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: est-https
+              containerPort: 8443
+            - name: scep-http
+              containerPort: 8080
+          volumeMounts:
+            - name: nac-cfg
+              mountPath: /mnt/nac_config
+            - name: taranac-state
+              mountPath: /opt/taranac/certs
+              subPath: certs
+              readOnly: true
+      volumes:
+        {{- if $core.hostEtc.enabled }}
+        - name: host-etc
+          hostPath:
+            path: /etc
+            type: Directory
+        {{- end }}
+        {{- range $name := list "tacacs-cfg" "radius-cfg" "nac-cfg" "captive-portal-cfg" "winbind-cfg" "winbind-runtime" "winbind-socket" "winbind-run" }}
+        - name: {{ $name }}
+          emptyDir: {}
+        {{- end }}
+        - name: taranac-state
+          persistentVolumeClaim:
+            claimName: {{ include "taranac.stateClaimName" . }}

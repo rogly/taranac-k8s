@@ -74,6 +74,15 @@ The repository separates vendor-agnostic resource definitions from site-specific
         └── storage-patch.yaml.example # Custom StorageClass patch template
 ```
 
+## Helm Chart
+
+A Helm chart equivalent to the Kustomize setup lives in [`charts/taranac`](charts/taranac) (bundled PostgreSQL subchart or external database, generated secrets, Keel support, load balancer/ingress/storage hooks). See its [README](charts/taranac/README.md).
+
+```bash
+helm dependency build charts/taranac
+helm install taranac charts/taranac -n taranac --create-namespace --set config.domain=taranac.example.com
+```
+
 ## Prerequisites
 
 1. **Kubernetes Cluster:** Kubernetes 1.28+ (K3s, vanilla `kubeadm`, RKE2, or cloud-managed K8s).
