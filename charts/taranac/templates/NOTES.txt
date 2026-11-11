@@ -13,6 +13,11 @@ Web UI: {{ if or .Values.ingress.tls .Values.ingress.certManager.enabled }}https
 The Ingress is disabled: nothing exposes the web UI. Enable ingress.enabled or
 route to the "frontend" Service (port 80) yourself.
 {{- end }}
+{{- if .Values.service.combined }}
+
+TACACS+ / EST / SCEP (TCP) and RADIUS/NAC (UDP) address:
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}-vip
+{{- else }}
 {{- if .Values.service.tcp.enabled }}
 
 TACACS+ / EST / SCEP (TCP) address:
@@ -22,7 +27,8 @@ TACACS+ / EST / SCEP (TCP) address:
 RADIUS/NAC (UDP) address:
   kubectl get svc -n {{ .Release.Namespace }} {{ include "taranac.fullname" . }}-vip-udp
 {{- end }}
-{{- if and .Values.service.tcp.enabled .Values.service.udp.enabled (eq .Values.service.tcp.type "LoadBalancer") (not .Values.service.tcp.annotations) }}
+{{- end }}
+{{- if and (not .Values.service.combined) .Values.service.tcp.enabled .Values.service.udp.enabled (eq .Values.service.tcp.type "LoadBalancer") (not .Values.service.tcp.annotations) }}
 
 NOTE: the TCP and UDP Services are separate load balancers and will get
 different addresses unless your load balancer is told to share one. Set

@@ -143,10 +143,12 @@ upgrades. Override with `secrets.values.<KEY>` or bring your own Secret with
 
 * **Kubernetes provider:** `--set keel.enabled=true` adds `keel.sh/policy`,
   `trigger`, `pollSchedule`, `match-tag` (plus `approvals`, `notify` and
-  `keel.annotations` when set) to the Taranac workloads. Defaults track a moving
-  tag (`force` + `matchTag`); for semver tags use e.g. `keel.policy=minor
-  --set keel.matchTag=false`. Keel patches live workloads, so a later
-  `helm upgrade` resets images unless you pass the current tags.
+  `keel.annotations` when set) to the Taranac workloads. Images default to the
+  release in `appVersion`, so the defaults (`policy: minor`, `matchTag: false`)
+  follow semver releases. To track a moving tag instead: `--set image.tag=latest
+  --set keel.policy=force --set keel.matchTag=true`. Keel patches live
+  workloads, so a later `helm upgrade` resets images unless you pass the
+  current tags.
 * **Helm provider:** leave `keel.enabled=false` and use
   `-f examples/values-keel-helm.yaml`; Keel then upgrades the release itself.
 
@@ -160,9 +162,51 @@ Use one provider, not both. Keel does not manage the PostgreSQL subchart.
 * The `postStart` hooks that point nginx at cluster DNS read the resolver from
   the pod's `resolv.conf`; no Service CIDR setting is needed (`dnsResolver`
   overrides it).
-* `core.hostEtc.enabled` mounts the node's `/etc` read-only into the `api`
-  container (as the Kustomize manifests do); disable it if hostPath volumes are
-  not permitted.
+* `core.hostEtc.enabled` (off by default) mounts the node's `/etc` read-only
+  into the `api` container for the host-monitoring page; it needs a hostPath
+  volume, which restricted Pod Security levels reject.
+* Logs and uploaded vendor RADIUS dictionaries live on a second PVC
+  (`persistence.data`, RWO, core pod only); the certificates and backups live on
+  the shared state PVC.
+* The probes: the api has startup/readiness/liveness probes on `/healthz`; the
+  frontend waits for the internal CA (init container) and the renderer for its
+  certificate. Daemons (tacacs, radius, nac, winbind, est-gateway) have no
+  probes because the images ship none.
+* `networkPolicy.enabled` (default) restricts the api, renderer and mfa to Taranac
+  pods (the daemons' client ports stay open). Add Ingress/phone peers for mfa via
+  `mfa.extraIngress`. Only enforced by a policy-capable CNI; set false to disable.
+* `service.combined` (default) serves TCP and UDP from one LoadBalancer Service
+  (`<release>-vip`), so one address without sharing annotations. Needs
+  Kubernetes >= 1.26 and a mixed-protocol load balancer; set false for separate
+  TCP and UDP Services.
+* The api sees its keys in `/app/host/env` (for backup/restore) when the Secret
+  is chart-managed; with `secrets.existingSecret` that file is not provided, so
+  keep your own backup of the keys.
+
+## Operating it the Kubernetes way
+
+| Compose | Here |
+|---|---|
+| `update.sh` | `helm upgrade`, or Keel |
+| volume backups | Velero/CSI snapshots of both PVCs, plus the database (CloudNativePG, `pg_dump`) |
+| `.env` secrets | the chart Secret; back up `MASTER_KEY` |
+| HA (Patroni/etcd) | not mapped: use an HA external database (e.g. CloudNativePG) |
+
+RADIUS CoA is sent from the pod/node address, not the load balancer address.
+If your switches only accept CoA from the address they authenticate against,
+use `externalTrafficPolicy: Local` plus a load balancer that preserves egress
+IP, or run the core on a dedicated node.
+
+### Needs changes in the application, not the chart
+
+* The nginx images hard-code the Compose resolver and `api` upstream; the chart
+  patches them with `postStart` hooks (an env-var driven config would replace
+  that).
+* The core pod runs six daemons that coordinate through shared files and unix
+  sockets, so it cannot be split into independently scaled Deployments.
+* Per-image security contexts (non-root, read-only root filesystem) are not
+  set by default because the images have not been validated with them.
+
 * The Bitnami PostgreSQL chart currently publishes only `latest` images
   (PostgreSQL 18 at the time of writing). Pin `postgresql.image.*` to the major
   version you intend to keep, or use an external database.

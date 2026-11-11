@@ -31,6 +31,10 @@ spec:
         {{- end }}
     spec:
       {{- include "taranac.pod.common" (dict "root" . "c" $c "state" true) | nindent 6 }}
+      {{- if $c.waitForCerts }}
+      initContainers:
+        {{- include "taranac.waitForCerts" (dict "root" . "c" $c "files" (list "ca.crt")) | nindent 8 }}
+      {{- end }}
       containers:
         - name: frontend
           {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
@@ -124,23 +128,7 @@ spec:
         # The renderer silently falls back to an ephemeral self-signed
         # certificate (which the API rejects) if its certificates do not exist
         # yet; the core pod mints them into the shared volume on first start.
-        - name: wait-for-certs
-          {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
-          command:
-            - /bin/sh
-            - -c
-            - |
-              for f in ca.crt renderer/server.crt renderer/server.key; do
-                until [ -s "/opt/taranac/certs/$f" ]; do
-                  echo "waiting for /opt/taranac/certs/$f"
-                  sleep 2
-                done
-              done
-          volumeMounts:
-            - name: taranac-certs
-              mountPath: /opt/taranac/certs
-              subPath: certs
-              readOnly: true
+        {{- include "taranac.waitForCerts" (dict "root" . "c" $c "files" (list "ca.crt" "renderer/server.crt" "renderer/server.key")) | nindent 8 }}
       {{- end }}
       containers:
         - name: renderer
@@ -203,6 +191,12 @@ metadata:
   {{- include "taranac.workload.annotations" . | nindent 2 }}
 spec:
   replicas: {{ $c.replicaCount }}
+  {{- if .Values.persistence.mfa.enabled }}
+  # The data volume is ReadWriteOnce: stop the old pod before starting the new one.
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  {{- end }}
   selector:
     matchLabels:
       {{- include "taranac.selectorLabels" $ctx | nindent 6 }}
@@ -229,6 +223,12 @@ spec:
               value: {{ include "taranac.db.url" (dict "scheme" "postgresql" "db" (include "taranac.db.mfaName" .)) | quote }}
             - name: INTERNAL_TLS_VERIFY
               value: {{ $c.internalTlsVerify | quote }}
+            - name: TARANAC_MFA_SECRET_KEY_FILE
+              value: /opt/taranac/data/enckey
+            {{- if $c.firebase.existingSecret }}
+            - name: TARANAC_MFA_FIREBASE_JSON
+              value: /opt/taranac/firebase/firebase-credentials.json
+            {{- end }}
             {{- with $c.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -243,6 +243,29 @@ spec:
           livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          volumeMounts:
+            {{- if .Values.persistence.mfa.enabled }}
+            - name: mfa-data
+              mountPath: /opt/taranac/data
+            {{- end }}
+            {{- if $c.firebase.existingSecret }}
+            - name: firebase
+              mountPath: /opt/taranac/firebase
+              readOnly: true
+            {{- end }}
+      {{- if or .Values.persistence.mfa.enabled $c.firebase.existingSecret }}
+      volumes:
+        {{- if .Values.persistence.mfa.enabled }}
+        - name: mfa-data
+          persistentVolumeClaim:
+            claimName: {{ include "taranac.mfaClaimName" . }}
+        {{- end }}
+        {{- if $c.firebase.existingSecret }}
+        - name: firebase
+          secret:
+            secretName: {{ $c.firebase.existingSecret }}
+        {{- end }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

@@ -13,10 +13,12 @@
     "service": {
       "type": "object",
       "properties": {
+        "combined": {"type": "boolean"},
         "tcp": {"$ref": "#/definitions/service"},
         "udp": {"$ref": "#/definitions/service"}
       }
     },
+    "networkPolicy": {"type": "object", "properties": {"enabled": {"type": "boolean"}}},
     "keel": {
       "type": "object",
       "properties": {

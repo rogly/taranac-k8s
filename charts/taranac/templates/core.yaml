@@ -67,6 +67,12 @@ spec:
             {{- include "taranac.secretEnv" (dict "root" . "key" "MASTER_KEY") | nindent 12 }}
             {{- include "taranac.secretEnv" (dict "root" . "key" "SECRET_KEY") | nindent 12 }}
             {{- include "taranac.secretEnv" (dict "root" . "key" "EST_PROXY_KEY") | nindent 12 }}
+            {{- range $e := list (list "TACACS_PORT" "tcp" "tacacs" 49) (list "TACACS_TLS_PORT" "tcp" "tacacs-tls" 6049) (list "RADIUS_AUTH_PORT" "udp" "radius-auth" 1812) (list "RADIUS_ACCT_PORT" "udp" "radius-acct" 1813) (list "NAC_AUTH_PORT" "udp" "nac-auth" 1814) (list "NAC_ACCT_PORT" "udp" "nac-acct" 1815) }}
+            - name: {{ index $e 0 }}
+              value: {{ dig (index $e 2) "targetPort" (index $e 3) (get $.Values.service (index $e 1)).ports | quote }}
+            {{- end }}
+            - name: SUPPORTED_LOCALES
+              value: {{ .Values.config.supportedLocales | quote }}
             - name: EST_GATEWAY_PORT
               value: {{ dig "est-gateway" "port" 8445 .Values.service.tcp.ports | quote }}
             - name: SCEP_HTTP_PORT
@@ -82,6 +88,18 @@ spec:
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- with .Values.api.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.api.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.api.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             {{- if $core.hostEtc.enabled }}
             - name: host-etc
@@ -106,6 +124,32 @@ spec:
             - name: taranac-state
               mountPath: /app/backups
               subPath: backups
+            {{- if .Values.persistence.data.enabled }}
+            - name: taranac-data
+              mountPath: /app/logs
+              subPath: app-logs
+            - name: taranac-data
+              mountPath: /app/logs/aaa
+              subPath: aaa-logs
+            - name: taranac-data
+              mountPath: /app/logs/tacacs
+              subPath: tacacs-logs
+            - name: taranac-data
+              mountPath: /app/logs/radius
+              subPath: radius-logs
+            - name: taranac-data
+              mountPath: /app/logs/nac
+              subPath: nac-logs
+            - name: taranac-data
+              mountPath: /opt/taranac/vendor_dictionaries
+              subPath: vendor-dictionaries
+            {{- end }}
+            {{- if not .Values.secrets.existingSecret }}
+            - name: host-env
+              mountPath: /app/host/env
+              subPath: host.env
+              readOnly: true
+            {{- end }}
 
         - name: winbind
           {{- include "taranac.container.common" (dict "root" . "c" .Values.winbind) | nindent 10 }}
@@ -122,6 +166,11 @@ spec:
               mountPath: /var/run/samba/winbindd
             - name: winbind-runtime
               mountPath: /var/lib/taranac-winbind
+            {{- if .Values.persistence.data.enabled }}
+            - name: taranac-data
+              mountPath: /var/log/taranac
+              subPath: winbind-logs
+            {{- end }}
 
         - name: tacacs
           {{- include "taranac.container.common" (dict "root" . "c" .Values.tacacs) | nindent 10 }}
@@ -129,6 +178,10 @@ spec:
             - name: TZ
               value: {{ .Values.config.timezone | quote }}
             {{- include "taranac.db.env" . | nindent 12 }}
+            - name: TACACS_PORT
+              value: {{ dig "tacacs" "targetPort" 49 .Values.service.tcp.ports | quote }}
+            - name: TACACS_TLS_PORT
+              value: {{ dig "tacacs-tls" "targetPort" 6049 .Values.service.tcp.ports | quote }}
             - name: TACACS_DB_URL
               value: {{ include "taranac.db.url" (dict "scheme" "postgresql" "db" "$(K8S_DB_NAME)") | quote }}
             {{- include "taranac.secretEnv" (dict "root" . "key" "MASTER_KEY") | nindent 12 }}
@@ -146,6 +199,11 @@ spec:
             - name: taranac-state
               mountPath: /opt/taranac/certs
               subPath: certs
+            {{- if .Values.persistence.data.enabled }}
+            - name: taranac-data
+              mountPath: /var/log/taranac
+              subPath: tacacs-logs
+            {{- end }}
 
         - name: radius
           {{- include "taranac.container.common" (dict "root" . "c" .Values.radius) | nindent 10 }}
@@ -178,6 +236,11 @@ spec:
             - name: taranac-state
               mountPath: /opt/taranac/certs
               subPath: certs
+            {{- if .Values.persistence.data.enabled }}
+            - name: taranac-data
+              mountPath: /var/log/taranac
+              subPath: radius-logs
+            {{- end }}
 
         - name: nac
           {{- include "taranac.container.common" (dict "root" . "c" .Values.nac) | nindent 10 }}
@@ -213,6 +276,15 @@ spec:
             - name: taranac-state
               mountPath: /opt/taranac/certs
               subPath: certs
+            {{- if .Values.persistence.data.enabled }}
+            - name: taranac-data
+              mountPath: /var/log/taranac
+              subPath: nac-logs
+            - name: taranac-data
+              mountPath: /opt/nac_module/vendor_dictionaries
+              subPath: vendor-dictionaries
+              readOnly: true
+            {{- end }}
 
         - name: est-gateway
           {{- include "taranac.container.common" (dict "root" . "c" .Values.estGateway) | nindent 10 }}
@@ -271,3 +343,16 @@ spec:
         - name: taranac-state
           persistentVolumeClaim:
             claimName: {{ include "taranac.stateClaimName" . }}
+        {{- if .Values.persistence.data.enabled }}
+        - name: taranac-data
+          persistentVolumeClaim:
+            claimName: {{ include "taranac.dataClaimName" . }}
+        {{- end }}
+        {{- if not .Values.secrets.existingSecret }}
+        - name: host-env
+          secret:
+            secretName: {{ include "taranac.secretName" . }}
+            items:
+              - key: host.env
+                path: host.env
+        {{- end }}
