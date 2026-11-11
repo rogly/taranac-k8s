@@ -100,8 +100,13 @@ jobs:
           [ -n "$digest" ] || { echo "::error::could not read pushed digest"; exit 1; }
           echo "ref=$repo/taranac@$digest" >> "$GITHUB_OUTPUT"
 
+      # helm keeps its registry credentials in its own config, which cosign does
+      # not read, so cosign needs its own login to push the signature.
       - name: Sign
-        run: cosign sign --yes "${{ steps.push.outputs.ref }}"
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" |
+            cosign login ghcr.io --username "${{ github.actor }}" --password-stdin
+          cosign sign --yes "${{ steps.push.outputs.ref }}"
 
       - name: Summary
         run: |
