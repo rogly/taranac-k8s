@@ -1,14 +1,21 @@
 {{- $fullname := include "taranac.fullname" . }}
 {{- $ctx := dict "root" . "component" "core" }}
-{{- range $proto := list "tcp" "udp" }}
-{{- $svc := index $.Values.service $proto }}
+{{- /* Each entry: Service-name suffix, settings source, protocols carried. */}}
+{{- $groups := list (list "tcp" "tcp" (list "tcp")) (list "udp" "udp" (list "udp")) }}
+{{- if .Values.service.combined }}
+{{- $groups = list (list "vip" "tcp" (list "tcp" "udp")) }}
+{{- end }}
+{{- range $g := $groups }}
+{{- $suffix := index $g 0 }}
+{{- $svc := index $.Values.service (index $g 1) }}
+{{- $protos := index $g 2 }}
 {{- if $svc.enabled }}
 {{- $exposed := or (eq $svc.type "LoadBalancer") (eq $svc.type "NodePort") }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $fullname }}-vip-{{ $proto }}
+  name: {{ $fullname }}-vip{{ if ne $suffix "vip" }}-{{ $suffix }}{{ end }}
   labels:
     {{- include "taranac.labels" $ctx | nindent 4 }}
     {{- with $svc.labels }}
@@ -38,7 +45,8 @@ spec:
   selector:
     {{- include "taranac.selectorLabels" $ctx | nindent 4 }}
   ports:
-    {{- range $name, $p := $svc.ports }}
+    {{- range $proto := $protos }}
+    {{- range $name, $p := (index $.Values.service $proto).ports }}
     {{- if $p }}
     - name: {{ $name }}
       port: {{ $p.port }}
@@ -47,6 +55,7 @@ spec:
       {{- if and $exposed $p.nodePort }}
       nodePort: {{ $p.nodePort }}
       {{- end }}
+    {{- end }}
     {{- end }}
     {{- end }}
 {{- end }}

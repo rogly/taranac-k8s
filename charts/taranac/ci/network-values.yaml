@@ -1,0 +1,10 @@
+networkPolicy:
+  enabled: true
+service:
+  combined: true
+persistence:
+  data:
+    enabled: false
+core:
+  hostEtc:
+    enabled: true

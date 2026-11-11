@@ -386,3 +386,42 @@ A secretKeyRef env var from the application Secret. Takes (dict "root" $ "key" "
       name: {{ include "taranac.secretName" .root }}
       key: {{ .key }}
 {{- end }}
+
+{{/*
+Env-file rendering of the application keys, mounted at /app/host/env so the
+api's backup/restore sees the secrets it would find in a Compose .env.
+Takes the final key/value dict.
+*/}}
+{{- define "taranac.hostEnv" -}}
+{{- range $k := list "MASTER_KEY" "SECRET_KEY" "EST_PROXY_KEY" "TARANAC_MFA_API_KEY" "REPORTS_RENDERER_API_KEY" }}
+{{ $k }}={{ get $ $k }}
+{{- end }}
+{{- end }}
+
+{{- define "taranac.dataClaimName" -}}
+{{- default (printf "%s-data" (include "taranac.fullname" .)) .Values.persistence.data.existingClaim }}
+{{- end }}
+
+{{/*
+Init container that waits until the core pod has minted files into the shared
+certificate volume. Takes (dict "root" $ "c" <component values> "files" (list ...)).
+*/}}
+{{- define "taranac.waitForCerts" -}}
+- name: wait-for-certs
+  {{- include "taranac.container.common" (dict "root" .root "c" .c) | nindent 2 }}
+  command:
+    - /bin/sh
+    - -c
+    - |
+      for f in {{ join " " .files }}; do
+        until [ -s "/opt/taranac/certs/$f" ]; do
+          echo "waiting for /opt/taranac/certs/$f"
+          sleep 2
+        done
+      done
+  volumeMounts:
+    - name: taranac-certs
+      mountPath: /opt/taranac/certs
+      subPath: certs
+      readOnly: true
+{{- end }}

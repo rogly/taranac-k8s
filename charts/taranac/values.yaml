@@ -34,6 +34,7 @@ config:
   # Public DNS name of the web UI; the default Ingress host.
   domain: taranac.example.com
   timezone: UTC
+  supportedLocales: "en,de,es,fr,pt"
 
 serviceAccount:
   create: true
@@ -148,6 +149,17 @@ persistence:
       - ReadWriteOnce
     size: 5Gi
     annotations: {}
+  # Logs (api, AAA, tacacs, radius, nac, winbind) and uploaded vendor RADIUS
+  # dictionaries, which Compose keeps in named volumes. Mounted by the core pod
+  # only, so ReadWriteOnce is enough.
+  data:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""   # empty = cluster default
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    annotations: {}
 
 # --------------------------------------------------------------------------
 # Networking
@@ -163,6 +175,11 @@ persistence:
 # Each entry in `ports` may set port, targetPort, protocol and nodePort. Set an
 # entry to null to drop it.
 service:
+  # One LoadBalancer Service carrying both TCP and UDP ports (one IP, no
+  # sharing annotations needed). Requires Kubernetes >= 1.26 and a load balancer
+  # that supports mixed protocols (MetalLB and most clouds do). Replaces the
+  # separate tcp/udp Services; their type/annotations/etc. are taken from `tcp`.
+  combined: false
   tcp:
     enabled: true
     type: LoadBalancer
@@ -193,6 +210,14 @@ service:
       nac-auth: {port: 1814, targetPort: 1814}
       nac-acct: {port: 1815, targetPort: 1815}
       nac-coa: {port: 3799, targetPort: 3799}
+
+# Opt-in NetworkPolicies (the cluster needs a policy-enforcing CNI). When
+# enabled: renderer and mfa accept traffic only from Taranac pods (and mfa also
+# from `mfa.extraIngress` peers, e.g. your ingress controller if phones reach it
+# through one); the api accepts only Taranac pods; frontend accepts anything;
+# the core's TACACS+/RADIUS/NAC/EST/SCEP ports stay open to all sources.
+networkPolicy:
+  enabled: false
 
 # Web UI. Routes to the frontend Service (plain HTTP, port 80), which serves
 # the UI and proxies /api to the backend; there is no separate edge proxy, so
@@ -244,14 +269,15 @@ ingress:
 #    and upgrades the release. Populate `keel.images` (see
 #    examples/values-keel-helm.yaml) and leave keel.enabled=false.
 #
-# The defaults track a moving tag (:latest). For semver tags use e.g.
-# policy: minor and matchTag: false.
+# The default image tag is the release in Chart.yaml appVersion, so the default
+# policy follows semver minor/patch releases. For a moving tag (:latest) set
+# image.tag=latest with policy: force and matchTag: true.
 keel:
   enabled: false
-  policy: force
+  policy: minor
   trigger: poll
   pollSchedule: "@every 5m"
-  matchTag: true
+  matchTag: false
   approvals: 0
   approvalDeadline: ""
   notify: ""
@@ -278,13 +304,29 @@ core:
   affinity: {}
   topologySpreadConstraints: []
   terminationGracePeriodSeconds: null
-  # The api container reads the node's /etc through a read-only hostPath.
-  # Disable if your Pod Security level forbids hostPath volumes.
+  # Mount the node's /etc read-only at /host/etc, as Compose mounts the host
+  # filesystem for the "host monitoring" page. Off by default: it needs a
+  # hostPath volume (blocked by the baseline Pod Security level) and in a pod
+  # shows the node rather than "the appliance".
   hostEtc:
-    enabled: true
+    enabled: false
 
 api:
   image: {repository: ghcr.io/taranaclabs/taranac/api, tag: "", digest: "", pullPolicy: ""}
+  # /healthz is served over HTTPS; kubelet does not verify the certificate.
+  # A first start runs migrations (and, on a replica, waits for the schema), so
+  # the startup probe allows up to 10 minutes.
+  startupProbe:
+    httpGet: {path: /healthz, port: 8000, scheme: HTTPS}
+    periodSeconds: 10
+    failureThreshold: 60
+  readinessProbe:
+    httpGet: {path: /healthz, port: 8000, scheme: HTTPS}
+    periodSeconds: 10
+  livenessProbe:
+    httpGet: {path: /healthz, port: 8000, scheme: HTTPS}
+    periodSeconds: 30
+    failureThreshold: 5
   resources: {}
   securityContext: {}
   extraEnv: []
@@ -338,10 +380,15 @@ frontend:
   tolerations: []
   affinity: {}
   topologySpreadConstraints: []
+  # Hold nginx back until the core pod has minted the internal CA it verifies
+  # the API with (otherwise it crash-loops on first start).
+  waitForCerts: true
   readinessProbe:
     tcpSocket: {port: http}
     periodSeconds: 10
-  livenessProbe: {}
+  livenessProbe:
+    tcpSocket: {port: http}
+    periodSeconds: 30
   extraEnv: []
   extraEnvFrom: []
 
@@ -372,6 +419,9 @@ mfa:
   image: {repository: ghcr.io/taranaclabs/taranac/mfa, tag: "", digest: "", pullPolicy: ""}
   # Verify the TLS certificate of internal service calls.
   internalTlsVerify: false
+  # Extra NetworkPolicy peers allowed to reach mfa (networkPolicy.enabled), e.g.
+  # [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}].
+  extraIngress: []
   resources: {}
   securityContext: {}
   podSecurityContext: {}

@@ -1,0 +1,39 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $ctx := dict "root" . }}
+{{- /* Pods of this release may talk to each other. */}}
+{{- $self := dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/name" (include "taranac.name" .))) }}
+{{- range $c := list (dict "n" "api" "c" "core" "port" 8000) (dict "n" "renderer" "c" "renderer" "port" 8443) (dict "n" "mfa" "c" "mfa" "port" 8443) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "taranac.fullname" $ }}-{{ $c.n }}
+  labels:
+    {{- include "taranac.labels" (dict "root" $ "component" $c.c) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "taranac.selectorLabels" (dict "root" $ "component" $c.c) | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - {{- toYaml $self | nindent 10 }}
+        {{- if eq $c.n "mfa" }}
+        {{- range $.Values.mfa.extraIngress }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- end }}
+      ports:
+        - port: {{ $c.port }}
+    {{- if eq $c.n "api" }}
+    # The daemons' client-facing ports stay open to every source.
+    - ports:
+        {{- range $p := list 49 6049 8443 8080 }}
+        - {port: {{ $p }}, protocol: TCP}
+        {{- end }}
+        {{- range $p := list 1812 1813 1814 1815 3799 }}
+        - {port: {{ $p }}, protocol: UDP}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

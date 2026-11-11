@@ -31,6 +31,10 @@ spec:
         {{- end }}
     spec:
       {{- include "taranac.pod.common" (dict "root" . "c" $c "state" true) | nindent 6 }}
+      {{- if $c.waitForCerts }}
+      initContainers:
+        {{- include "taranac.waitForCerts" (dict "root" . "c" $c "files" (list "ca.crt")) | nindent 8 }}
+      {{- end }}
       containers:
         - name: frontend
           {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
@@ -124,23 +128,7 @@ spec:
         # The renderer silently falls back to an ephemeral self-signed
         # certificate (which the API rejects) if its certificates do not exist
         # yet; the core pod mints them into the shared volume on first start.
-        - name: wait-for-certs
-          {{- include "taranac.container.common" (dict "root" . "c" $c) | nindent 10 }}
-          command:
-            - /bin/sh
-            - -c
-            - |
-              for f in ca.crt renderer/server.crt renderer/server.key; do
-                until [ -s "/opt/taranac/certs/$f" ]; do
-                  echo "waiting for /opt/taranac/certs/$f"
-                  sleep 2
-                done
-              done
-          volumeMounts:
-            - name: taranac-certs
-              mountPath: /opt/taranac/certs
-              subPath: certs
-              readOnly: true
+        {{- include "taranac.waitForCerts" (dict "root" . "c" $c "files" (list "ca.crt" "renderer/server.crt" "renderer/server.key")) | nindent 8 }}
       {{- end }}
       containers:
         - name: renderer

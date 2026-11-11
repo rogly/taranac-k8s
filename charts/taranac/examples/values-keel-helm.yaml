@@ -2,10 +2,10 @@
 # upgrades the release when a newer image appears. Leave keel.enabled=false.
 # Each repository/tag pair points at the values paths the chart reads.
 keel:
-  policy: force
+  policy: minor
   trigger: poll
   pollSchedule: "@every 5m"
-  matchTag: true
+  matchTag: false
   images:
     - {repository: api.image.repository,        tag: api.image.tag}
     - {repository: winbind.image.repository,    tag: winbind.image.tag}

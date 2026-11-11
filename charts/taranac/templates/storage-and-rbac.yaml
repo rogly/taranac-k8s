@@ -19,6 +19,28 @@ spec:
     requests:
       storage: {{ .Values.persistence.state.size }}
 {{- end }}
+{{- if and .Values.persistence.data.enabled (not .Values.persistence.data.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "taranac.dataClaimName" . }}
+  labels:
+    {{- include "taranac.labels" (dict "root" . "component" "data") | nindent 4 }}
+  {{- with .Values.persistence.data.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.data.accessModes | nindent 4 }}
+  {{- with .Values.persistence.data.storageClass }}
+  storageClassName: {{ if eq . "-" }}""{{ else }}{{ . | quote }}{{ end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
+{{- end }}
 {{- if .Values.serviceAccount.create }}
 ---
 apiVersion: v1

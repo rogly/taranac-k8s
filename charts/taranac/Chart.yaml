@@ -6,7 +6,7 @@ description: >-
 type: application
 version: 0.1.0
 # Default image tag for every Taranac component (overridable with image.tag).
-appVersion: "latest"
+appVersion: "1.3.4"
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/daedalus01/taranac-k8s
 sources:
