@@ -39,6 +39,37 @@ chart version. Verify a download with
 
 Run `helm dependency build charts/taranac` once if you install from a checkout.
 
+## Dependencies
+
+### Helm subcharts
+
+| Subchart | Version | Repository | Enabled by | Purpose |
+| --- | --- | --- | --- | --- |
+| `postgresql` (Bitnami) | `18.x.x` | `oci://registry-1.docker.io/bitnamicharts` | `postgresql.enabled` (default `true`) | Application and MFA databases |
+
+The published chart already bundles the subchart; `helm dependency build`
+(above) is only needed when installing from a checkout. Set
+`postgresql.enabled=false` and fill in `externalDatabase` to use your own
+PostgreSQL (including CloudNativePG) instead; see [Database](#database). Values
+for the subchart go under the `postgresql:` key. Bitnami currently publishes
+only `latest` images, so pin `postgresql.image.*` if you need a fixed
+PostgreSQL major version.
+
+### Cluster components
+
+These are not installed by the chart. Only the first two are needed for a
+default install.
+
+| Component | Needed for | If missing |
+| --- | --- | --- |
+| Ingress controller | Web UI (`ingress.enabled`) | Disable the Ingress and route to the `frontend` Service yourself |
+| LoadBalancer implementation (MetalLB, cloud LB) | TACACS+/RADIUS/NAC/EST/SCEP address (`service.*`) | Use `service.*.type=NodePort` or `ClusterIP` |
+| Default StorageClass | State, data, MFA and database volumes | Set `persistence.*.storageClass` |
+| cert-manager | Web certificate (`ingress.certManager`) | Provide `ingress.tls` yourself |
+| CNI with NetworkPolicy support | Enforcing `networkPolicy` | Policies are created but not enforced; set `networkPolicy.enabled=false` to omit them |
+| Keel | Automatic image updates (`keel.*`) | Leave `keel.enabled=false` |
+| CloudNativePG operator | An in-cluster HA database | Use the bundled subchart or another external PostgreSQL |
+
 ## Common customisation
 
 | Need | Values |
