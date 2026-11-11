@@ -11,13 +11,14 @@ helm install taranac ./charts/taranac -n taranac --create-namespace \
 Out of the box this installs the core StatefulSet, the frontend, renderer and
 MFA Deployments, a bundled PostgreSQL (Bitnami subchart), generated application
 secrets, a shared state PVC on the default StorageClass, an Ingress for the web
-UI, and two LoadBalancer Services (TCP and UDP) for TACACS+, EST, SCEP, RADIUS
+UI, and a LoadBalancer Service (TCP and UDP) for TACACS+, EST, SCEP, RADIUS
 and NAC. Nothing cluster-specific is set; use the hooks below.
 
-Released versions are published as an OCI artifact to GitHub Container Registry:
+Released versions are published as an OCI artifact to GitHub Container Registry
+(`<owner>`/`<repo>` below is the GitHub repository that publishes the chart):
 
 ```bash
-helm install taranac oci://ghcr.io/rogly/charts/taranac --version <version> \
+helm install taranac oci://ghcr.io/<owner>/charts/taranac --version <version> \
   -n taranac --create-namespace --set config.domain=taranac.example.com
 ```
 
@@ -25,7 +26,7 @@ To release, bump `version` in `Chart.yaml`, merge, then push a tag named
 `taranac-<version>` (for example `taranac-0.1.0`); the `Helm chart` workflow
 lints, packages, pushes and signs it (keyless, cosign). The tag must match the
 chart version. Verify a download with
-`cosign verify ghcr.io/rogly/charts/taranac:<version> --certificate-identity-regexp 'https://github.com/rogly/taranac-k8s/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+`cosign verify ghcr.io/<owner>/charts/taranac:<version> --certificate-identity-regexp 'https://github.com/<owner>/<repo>/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
 ## Requirements
 
@@ -38,6 +39,37 @@ chart version. Verify a download with
   built-in proxy) and a LoadBalancer implementation (or set `service.*.type`).
 
 Run `helm dependency build charts/taranac` once if you install from a checkout.
+
+## Dependencies
+
+### Helm subcharts
+
+| Subchart | Version | Repository | Enabled by | Purpose |
+| --- | --- | --- | --- | --- |
+| `postgresql` (Bitnami) | `18.x.x` | `oci://registry-1.docker.io/bitnamicharts` | `postgresql.enabled` (default `true`) | Application and MFA databases |
+
+The published chart already bundles the subchart; `helm dependency build`
+(above) is only needed when installing from a checkout. Set
+`postgresql.enabled=false` and fill in `externalDatabase` to use your own
+PostgreSQL (including CloudNativePG) instead; see [Database](#database). Values
+for the subchart go under the `postgresql:` key. Bitnami currently publishes
+only `latest` images, so pin `postgresql.image.*` if you need a fixed
+PostgreSQL major version.
+
+### Cluster components
+
+These are not installed by the chart. Only the first two are needed for a
+default install.
+
+| Component | Needed for | If missing |
+| --- | --- | --- |
+| Ingress controller | Web UI (`ingress.enabled`) | Disable the Ingress and route to the `frontend` Service yourself |
+| LoadBalancer implementation (MetalLB, cloud LB) | TACACS+/RADIUS/NAC/EST/SCEP address (`service.*`) | Use `service.*.type=NodePort` or `ClusterIP` |
+| Default StorageClass | State, data, MFA and database volumes | Set `persistence.*.storageClass` |
+| cert-manager | Web certificate (`ingress.certManager`) | Provide `ingress.tls` yourself |
+| CNI with NetworkPolicy support | Enforcing `networkPolicy` | Policies are created but not enforced; set `networkPolicy.enabled=false` to omit them |
+| Keel | Automatic image updates (`keel.*`) | Leave `keel.enabled=false` |
+| CloudNativePG operator | An in-cluster HA database | Use the bundled subchart or another external PostgreSQL |
 
 ## Common customisation
 
