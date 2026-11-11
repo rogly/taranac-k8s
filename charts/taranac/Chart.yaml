@@ -9,6 +9,8 @@ version: 0.1.0
 appVersion: "latest"
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/daedalus01/taranac-k8s
+sources:
+  - https://github.com/rogly/taranac-k8s
 keywords:
   - nac
   - radius
