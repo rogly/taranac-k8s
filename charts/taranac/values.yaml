@@ -152,6 +152,15 @@ persistence:
   # Logs (api, AAA, tacacs, radius, nac, winbind) and uploaded vendor RADIUS
   # dictionaries, which Compose keeps in named volumes. Mounted by the core pod
   # only, so ReadWriteOnce is enough.
+  # The mfa service's encryption key (push tokens are undecryptable without it).
+  mfa:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    annotations: {}
   data:
     enabled: true
     existingClaim: ""
@@ -177,9 +186,9 @@ persistence:
 service:
   # One LoadBalancer Service carrying both TCP and UDP ports (one IP, no
   # sharing annotations needed). Requires Kubernetes >= 1.26 and a load balancer
-  # that supports mixed protocols (MetalLB and most clouds do). Replaces the
-  # separate tcp/udp Services; their type/annotations/etc. are taken from `tcp`.
-  combined: false
+  # that supports mixed protocols (MetalLB and most clouds do). Set false for
+  # separate tcp/udp Services. When true, type/annotations/etc. come from `tcp`.
+  combined: true
   tcp:
     enabled: true
     type: LoadBalancer
@@ -211,13 +220,13 @@ service:
       nac-acct: {port: 1815, targetPort: 1815}
       nac-coa: {port: 3799, targetPort: 3799}
 
-# Opt-in NetworkPolicies (the cluster needs a policy-enforcing CNI). When
-# enabled: renderer and mfa accept traffic only from Taranac pods (and mfa also
+# NetworkPolicies (only enforced if the cluster CNI supports them; harmless
+# otherwise). When enabled: renderer and mfa accept traffic only from Taranac pods (and mfa also
 # from `mfa.extraIngress` peers, e.g. your ingress controller if phones reach it
 # through one); the api accepts only Taranac pods; frontend accepts anything;
 # the core's TACACS+/RADIUS/NAC/EST/SCEP ports stay open to all sources.
 networkPolicy:
-  enabled: false
+  enabled: true
 
 # Web UI. Routes to the frontend Service (plain HTTP, port 80), which serves
 # the UI and proxies /api to the backend; there is no separate edge proxy, so
@@ -419,12 +428,18 @@ mfa:
   image: {repository: ghcr.io/taranaclabs/taranac/mfa, tag: "", digest: "", pullPolicy: ""}
   # Verify the TLS certificate of internal service calls.
   internalTlsVerify: false
+  # Optional Firebase service-account key for push notifications: a Secret with
+  # the key `firebase-credentials.json`. Without it mfa runs poll-only.
+  firebase:
+    existingSecret: ""
   # Extra NetworkPolicy peers allowed to reach mfa (networkPolicy.enabled), e.g.
   # [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}].
   extraIngress: []
   resources: {}
   securityContext: {}
-  podSecurityContext: {}
+  # The mfa image runs as uid/gid 999; fsGroup makes its data volume writable.
+  podSecurityContext:
+    fsGroup: 999
   podAnnotations: {}
   podLabels: {}
   priorityClassName: ""

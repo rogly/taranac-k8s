@@ -425,3 +425,7 @@ certificate volume. Takes (dict "root" $ "c" <component values> "files" (list ..
       subPath: certs
       readOnly: true
 {{- end }}
+
+{{- define "taranac.mfaClaimName" -}}
+{{- default (printf "%s-mfa-data" (include "taranac.fullname" .)) .Values.persistence.mfa.existingClaim }}
+{{- end }}

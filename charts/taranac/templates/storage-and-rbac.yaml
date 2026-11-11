@@ -41,6 +41,28 @@ spec:
     requests:
       storage: {{ .Values.persistence.data.size }}
 {{- end }}
+{{- if and .Values.persistence.mfa.enabled (not .Values.persistence.mfa.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "taranac.mfaClaimName" . }}
+  labels:
+    {{- include "taranac.labels" (dict "root" . "component" "mfa") | nindent 4 }}
+  {{- with .Values.persistence.mfa.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.mfa.accessModes | nindent 4 }}
+  {{- with .Values.persistence.mfa.storageClass }}
+  storageClassName: {{ if eq . "-" }}""{{ else }}{{ . | quote }}{{ end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.mfa.size }}
+{{- end }}
 {{- if .Values.serviceAccount.create }}
 ---
 apiVersion: v1

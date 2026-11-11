@@ -172,12 +172,13 @@ Use one provider, not both. Keel does not manage the PostgreSQL subchart.
   frontend waits for the internal CA (init container) and the renderer for its
   certificate. Daemons (tacacs, radius, nac, winbind, est-gateway) have no
   probes because the images ship none.
-* `networkPolicy.enabled=true` restricts the api, renderer and mfa to Taranac
+* `networkPolicy.enabled` (default) restricts the api, renderer and mfa to Taranac
   pods (the daemons' client ports stay open). Add Ingress/phone peers for mfa via
-  `mfa.extraIngress`. Needs a policy-enforcing CNI.
-* `service.combined=true` serves TCP and UDP from one LoadBalancer Service
-  (`<release>-taranac-vip`), so one address without sharing annotations
-  (Kubernetes >= 1.26, mixed-protocol load balancer).
+  `mfa.extraIngress`. Only enforced by a policy-capable CNI; set false to disable.
+* `service.combined` (default) serves TCP and UDP from one LoadBalancer Service
+  (`<release>-vip`), so one address without sharing annotations. Needs
+  Kubernetes >= 1.26 and a mixed-protocol load balancer; set false for separate
+  TCP and UDP Services.
 * The api sees its keys in `/app/host/env` (for backup/restore) when the Secret
   is chart-managed; with `secrets.existingSecret` that file is not provided, so
   keep your own backup of the keys.
