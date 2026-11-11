@@ -201,10 +201,13 @@ service:
 #
 # Taranac needs from the controller (names below are ingress-nginx's; use your
 # controller's equivalents):
-#   * request bodies up to 25 MB (bulk import)       proxy-body-size: "25m"
-#   * read/send timeouts of 600s for bulk operations  proxy-read-timeout: "600"
-#   * correct X-Forwarded-{For,Proto,Host,Port} headers, overwriting any sent by
-#     the client: the core builds collector/portal URLs from them.
+#   * request bodies up to 25 MB for collector uploads (/api/v1/ncm/collector/*;
+#     the frontend caps every other API path at 3 MB)  proxy-body-size: "25m"
+#   * read/send timeouts of 600s for bulk operations   proxy-read-timeout: "600"
+#   * trustworthy X-Forwarded-{For,Proto,Host,Port} and X-Real-IP headers. There
+#     is no edge proxy to overwrite them any more, and the core builds
+#     collector/portal URLs and records client IPs from them. The controller
+#     must not accept them from clients (see the chart README).
 # Example:
 #   annotations:
 #     nginx.ingress.kubernetes.io/proxy-body-size: "25m"

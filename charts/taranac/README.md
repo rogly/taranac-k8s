@@ -45,11 +45,23 @@ Taranac's own edge proxy is not deployed. The Ingress routes straight to the
 terminates at the Ingress. The host defaults to `config.domain`; the cluster's
 default IngressClass is used unless `ingress.className` is set.
 
-Your controller must allow what Taranac relies on (settings shown are
-ingress-nginx's; use your controller's equivalents): request bodies up to 25 MB,
-600 s read/send timeouts for bulk operations, and correct `X-Forwarded-*`
-headers that overwrite any sent by clients (the core builds collector and
-portal URLs from them).
+Your controller must provide what Taranac relies on (settings shown are
+ingress-nginx's; use your controller's equivalents):
+
+* **Body size:** 25 MB for collector uploads (`/api/v1/ncm/collector/*`). The
+  frontend itself caps every other API path at 3 MB.
+* **Timeouts:** 600 s read/send for bulk operations.
+* **Trustworthy forwarded headers.** Without the edge nothing overwrites
+  `X-Forwarded-For/Proto/Host/Port` or `X-Real-IP`, yet the core builds
+  collector and portal URLs and records client IPs from them. A controller that
+  accepts these from clients lets anyone choose them. ingress-nginx does so
+  when `use-forwarded-headers` is `"true"` with a broad `proxy-real-ip-cidr`
+  (such as `0.0.0.0/0`): we saw a client-supplied `X-Forwarded-Host` become the
+  upstream `Host`, `X-Real-IP` and `X-Forwarded-Port` follow client values, and
+  `X-Forwarded-Proto: http` redirect to an attacker-chosen host. Unless the
+  controller sits behind a trusted L7 proxy or CDN, leave `use-forwarded-headers`
+  off; if it does, restrict `proxy-real-ip-cidr` to that proxy's addresses.
+  Check by sending spoofed headers to an echo service behind the same class.
 
 ```yaml
 ingress:
