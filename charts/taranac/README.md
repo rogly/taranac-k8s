@@ -214,31 +214,3 @@ Use one provider, not both. Keel does not manage the PostgreSQL subchart.
 * The api sees its keys in `/app/host/env` (for backup/restore) when the Secret
   is chart-managed; with `secrets.existingSecret` that file is not provided, so
   keep your own backup of the keys.
-
-## Operating it the Kubernetes way
-
-| Compose | Here |
-|---|---|
-| `update.sh` | `helm upgrade`, or Keel |
-| volume backups | Velero/CSI snapshots of both PVCs, plus the database (CloudNativePG, `pg_dump`) |
-| `.env` secrets | the chart Secret; back up `MASTER_KEY` |
-| HA (Patroni/etcd) | not mapped: use an HA external database (e.g. CloudNativePG) |
-
-RADIUS CoA is sent from the pod/node address, not the load balancer address.
-If your switches only accept CoA from the address they authenticate against,
-use `externalTrafficPolicy: Local` plus a load balancer that preserves egress
-IP, or run the core on a dedicated node.
-
-### Needs changes in the application, not the chart
-
-* The nginx images hard-code the Compose resolver and `api` upstream; the chart
-  patches them with `postStart` hooks (an env-var driven config would replace
-  that).
-* The core pod runs six daemons that coordinate through shared files and unix
-  sockets, so it cannot be split into independently scaled Deployments.
-* Per-image security contexts (non-root, read-only root filesystem) are not
-  set by default because the images have not been validated with them.
-
-* The Bitnami PostgreSQL chart currently publishes only `latest` images
-  (PostgreSQL 18 at the time of writing). Pin `postgresql.image.*` to the major
-  version you intend to keep, or use an external database.
