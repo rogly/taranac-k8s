@@ -83,7 +83,7 @@ helm dependency build charts/taranac
 helm install taranac charts/taranac -n taranac --create-namespace --set config.domain=taranac.example.com
 ```
 
-Released chart versions are also published to `oci://ghcr.io/rogly/charts/taranac` (see the chart README).
+Released chart versions are also published to `oci://ghcr.io/<owner>/charts/taranac` (see the chart README).
 
 ## Prerequisites
 

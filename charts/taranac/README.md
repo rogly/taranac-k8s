@@ -11,13 +11,14 @@ helm install taranac ./charts/taranac -n taranac --create-namespace \
 Out of the box this installs the core StatefulSet, the frontend, renderer and
 MFA Deployments, a bundled PostgreSQL (Bitnami subchart), generated application
 secrets, a shared state PVC on the default StorageClass, an Ingress for the web
-UI, and two LoadBalancer Services (TCP and UDP) for TACACS+, EST, SCEP, RADIUS
+UI, and a LoadBalancer Service (TCP and UDP) for TACACS+, EST, SCEP, RADIUS
 and NAC. Nothing cluster-specific is set; use the hooks below.
 
-Released versions are published as an OCI artifact to GitHub Container Registry:
+Released versions are published as an OCI artifact to GitHub Container Registry
+(`<owner>`/`<repo>` below is the GitHub repository that publishes the chart):
 
 ```bash
-helm install taranac oci://ghcr.io/rogly/charts/taranac --version <version> \
+helm install taranac oci://ghcr.io/<owner>/charts/taranac --version <version> \
   -n taranac --create-namespace --set config.domain=taranac.example.com
 ```
 
@@ -25,7 +26,7 @@ To release, bump `version` in `Chart.yaml`, merge, then push a tag named
 `taranac-<version>` (for example `taranac-0.1.0`); the `Helm chart` workflow
 lints, packages, pushes and signs it (keyless, cosign). The tag must match the
 chart version. Verify a download with
-`cosign verify ghcr.io/rogly/charts/taranac:<version> --certificate-identity-regexp 'https://github.com/rogly/taranac-k8s/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+`cosign verify ghcr.io/<owner>/charts/taranac:<version> --certificate-identity-regexp 'https://github.com/<owner>/<repo>/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
 ## Requirements
 
